@@ -1,0 +1,700 @@
+---
+title: "FinalHousing"
+author: "Sunny"
+date: "11/21/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+#install.packages("ggpubr")
+library(tree)
+library(gvlma)
+library(MASS)
+library(leaps)
+library(effects)
+library(ISLR)
+library(arules)
+library(tidytext)
+library(tidyverse)
+library(topicmodels)
+library(stringr)
+library(gutenbergr)
+library(reshape2)
+library(textdata)
+library(dplyr)
+library(dbplyr)
+library(wordcloud)
+library(ggpubr)
+
+```
+
+```{r}
+melb.df <- read.csv("Melbourne_housing_FULL.csv")
+melb1<- melb.df
+```
+```{r}
+melb.df <- na.omit(melb.df)
+summary(melb.df)
+
+```
+```{r}
+unique( melb.df$Regionname)
+melb.df <- subset(melb.df, melb.df$CouncilArea != 'Other')
+
+
+summary(melb.df)
+View(melb.df)
+```
+###The central limit theorem tells us that no matter what distribution things have, the sampling distribution tends to be normal if the sample is large enough (n > 30).
+```{r}
+library("ggpubr")
+ggdensity(melb.df$YearBuilt, 
+          main = "Density plot of Year Built",
+          xlab = "Year Built")
+ggdensity(melb.df$Price, 
+          main = "Density plot of Year Price",
+          xlab = "Year Built")
+ggdensity(melb.df$Car, 
+          main = "Density plot of Year Car",
+          xlab = "Year Built")
+ggdensity(melb.df$Landsize, 
+          main = "Density plot of Year Landsize",
+          xlab = "Year Built")
+ggdensity(melb.df$BuildingArea, 
+          main = "Density plot of Year BuildingArea",
+          xlab = "Year Built")
+#Shapiro-Wilk’s method is widely recommended for normality test and it provides better power than K-S. It is based on the correlation between the data and the corresponding normal scores.
+#shapiro.test(melb.df$BuildingArea)
+##From the output, the p-value > 0.05 implying that the distribution of the data are not significantly different from normal distribution. In other words, we can assume the normality.
+```
+```{r}
+summary(melb.df)
+names(melb.df)
+```
+#### Examining bivariate relationships
+```{r message=FALSE, warning=FALSE}
+library(gvlma)
+library(MASS)
+library(leaps)
+library(effects)
+library(car)
+melb.dfcor <- as.data.frame(melb.df[,c("Rooms", "BuildingArea", "Bedroom2",
+                                     "Landsize", "Bathroom","Price")])
+cor(melb.dfcor)
+
+scatterplotMatrix(melb.dfcor, spread=FALSE, smoother.args=list(lty=2),
+                  main="Scatter Plot Matrix")
+```
+```{r}
+library(ggcorrplot)
+melb.dfcor <- as.data.frame(melb.df[,c("Rooms", "BuildingArea",
+                                     "Landsize","Price","Car","Longtitude","Lattitude")])
+# Compute a correlation matrix
+corr <- round(cor(melb.dfcor), 1)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(melb.dfcor)
+
+# Visualize the lower triangle of the correlation matrix
+# Barring the no significant coefficient
+corr.plot <- ggcorrplot(
+  corr, hc.order = TRUE, type = "lower", outline.col = "white",
+  p.mat = p.mat
+  )
+corr.plot
+library(plotly)
+ggplotly(corr.plot)
+
+```
+
+```{r}
+##dropping Bedroom2 colum because of high cor with Rooms
+#melb.df<- subset(melb.df, select = -c(11))
+#DATAFRAME2 AFTER removing collinearity
+melb2 <- melb.df
+names(melb.df)
+```
+```{r}
+melb.df$priceCat <-  cut(melb.df$Price, 
+                   breaks=c(-Inf,641000, 900000, 1345000, Inf), 
+                   labels=c("low","medium","high","very high"))
+melb.df$Suburb<- as.factor(melb.df$Suburb)
+melb.df$Address<- as.factor(melb.df$Address)
+melb.df$Type<- as.factor(melb.df$Type)
+melb.df$Date<- as.factor(melb.df$Date)
+melb.df$Regionname<- as.factor(melb.df$Regionname)
+
+view(melb.df)
+```
+```{r}
+
+melb.df$Distance <- as.numeric(as.character(melb.df$Distance))
+
+```
+```{r}
+
+fit1 <- lm(Price ~ Suburb+Rooms+ Type+Method+SellerG+Date+Distance+
+       + Car+Landsize+YearBuilt+Regionname,data=melb.df)
+summary(fit1)
+
+```
+
+
+```{r}
+options(max.print=1000000)
+
+
+```
+
+#### Interaction Terms
+```{r}
+summary(lm(Price~Rooms*Distance,data=melb.df))
+#We also know to include interaction terms using colon!
+summary(lm(Price~Car:Landsize,data=melb.df))
+fit4<- lm(Price~Distance*Rooms,data=melb.df)
+fit3 <-lm(Price~Car:Landsize,data=melb.df)
+```
+```{r}
+anova(fit1)
+par(mfrow=c(2,2))
+plot(fit1)
+plot(effect("Car:Landsize", fit3,, list(wt=c(2.2, 3.2, 4.2))), multiline=TRUE)
+plot(effect("Distance*Rooms", fit4,, list(wt=c(2.2, 3.2, 4.2))), multiline=TRUE)
+
+```
+
+
+```{r}
+set.seed(111)
+train.index <- sample(c(1:dim(melb.df)[1]), dim(melb.df)[1]*0.6)  
+train.df <- melb.df[train.index, ]
+valid.df <- melb.df[-train.index, ]
+train.df
+names(train.df)
+```
+
+
+```{r}
+
+# use glm() (general linear model) with family = "binomial" to fit a logistic 
+# regression.
+# Load the package
+train.dfreg1<- subset(train.df, select = -c(1,2,5,6,7,8,10,15,17,20,21))
+names(train.dfreg1)
+library(nnet)
+# Run the model
+multilog.model1 <- multinom(priceCat ~ ., data=train.dfreg1)
+
+options(scipen=999)
+summary(multilog.model1)
+
+```
+```{r}
+
+# use glm() (general linear model) with family = "binomial" to fit a logistic 
+# regression.
+# Load the package
+train.dfreg2<- subset(train.df, select = -c(1,2,5,6,7,8,17,15,13,20,21))
+names(train.dfreg2)
+library(nnet)
+# Run the model
+multilog.model2 <- multinom(priceCat ~ ., data=train.dfreg2)
+
+options(scipen=999)
+summary(multilog.model2)
+```
+```{r}
+valid.dfreg1<- subset(valid.df, select = -c(1,2,5,6,7,8,10,15,17,20,21))
+valid.dfreg2<- subset(valid.df, select = -c(1,2,5,6,7,8,17,15,13,20,21))
+names(valid.dfreg1)
+names(valid.dfreg2)
+```
+```{r}
+valid.dfreg2
+train.dfreg2
+```
+###train accuracy multinmoial logistic accuracy
+```{r}
+# use predict() with type = "response" to compute predicted probabilities. 
+logit.reg.pred <- predict(multilog.model1, train.dfreg1[, -11], type = "probs")
+
+# Predicting the values for train dataset
+train.dfreg1$pred <- predict(multilog.model1, newdata = train.dfreg1, "class")
+ 
+# Building classification table
+ctable <- table(train.dfreg1$priceCat, train.dfreg1$pred)
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+
+```
+###test accuracy multinomial logistic regression
+```{r}
+
+# Predicting the values for test dataset
+valid.dfreg1$pred <- predict(multilog.model1, newdata = valid.dfreg1, "class")
+
+# Building classification table
+ctable <- table(valid.dfreg1$priceCat, valid.dfreg1$pred)
+
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+
+
+```
+
+```{r}
+names(train.df)
+```
+###SVM
+```{r}
+library(e1071) 
+#install.packages("ROCR")
+library(ROCR)
+library(ggplot2)
+#names(train.df)
+train.dfreg1<- subset(train.df, select = -c(2,5,8,15,21))
+valid.dfreg1<- subset(valid.df, select = -c(2,5,8,15,21))
+names(train.dfreg1)
+```
+```{r}
+#svm here, note the probability=TRUE
+svmmodel<-svm(priceCat~.,train.dfreg1,
+              kernel="sigmoid", probability = TRUE)
+
+## In the ?predict.svm you can see probability = TRUE is needed to output probability
+## type="repsonse" and type = "prob" would do nothing. 
+#pred.output <-predict(svmmodel,valid.df1,probability = TRUE, type = "response")
+
+## It outputs the probabilities as an attribute, so you need to go in an grab them
+#prob <- attr(pred.output, "probabilities")[,2]
+#pred <- prediction(prob, valid.df1$priceCat) #Now this works
+
+```
+###train accuracy svm logistic accuracy
+```{r}
+# use predict() with type = "response" to compute predicted probabilities. 
+
+# Predicting the values for train dataset
+valid.dfreg1$predsvm <- predict(svmmodel, newdata = valid.dfreg1[,-17], probability = TRUE)
+ 
+# Building classification table
+ctable <- table(valid.dfreg1$priceCat, valid.dfreg1$predsvm)
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+
+```
+###test accuracy svm logistic accuracy
+```{r}
+# use predict() with type = "response" to compute predicted probabilities. 
+
+# Predicting the values for train dataset
+train.dfreg1$precticedsvm <- predict(svmmodel, newdata = train.dfreg1[,-17], probability = TRUE)
+ 
+# Building classification table
+ctable <- table(train.dfreg1$priceCat, train.dfreg1$precticedsvm)
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+
+```
+###Svm classifier linear
+```{r}
+train.dfreg1 <- subset(train.dfreg1, select = -c(18))
+valid.dfreg1 <- subset(valid.dfreg1, select = -c(18))
+          
+```
+```{r}
+
+svmclassifier = svm(formula = priceCat ~ ., 
+                 data = train.dfreg1, 
+                 type = 'C-classification', 
+                 kernel = 'linear') 
+```
+
+```{r}
+# Predicting the Test set results 
+svmclassifier.pred = predict(svmclassifier, newdata = valid.dfreg1[,-17]) 
+
+```
+```{r}
+# Making the Confusion Matrix 
+cm = table(valid.dfreg1[,17], svmclassifier.pred) 
+cm
+```
+```{r}
+names(valid.df)
+```
+###tree have limitation of 32 levels
+```{r}
+train.dtree<- subset(train.df, select = -c(1,2,5,6,7,8,10,17,15,20,21))
+valid.dtree<- subset(valid.df, select = -c(1,2,5,6,7,8,10,17,15,20,21))
+
+```
+```{r}
+
+library(tree)
+library(ISLR)
+tree.melb=tree(priceCat ~ ., data=train.dtree)
+tree.pred=predict(tree.melb, newdata = valid.dtree,type="class")
+# Building classification table
+ctable <- table(valid.dtree$priceCat, tree.pred)
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+
+
+```
+```{r}
+set.seed(3)
+cv.melb=cv.tree(tree.melb,FUN=prune.misclass)
+names(cv.melb)
+cv.melb
+```
+
+
+```{r}
+par(mfrow=c(1,2))
+plot(cv.melb$size,cv.melb$dev,type="b")
+plot(cv.melb$k,cv.melb$dev,type="b")
+prune.melb=prune.misclass(tree.melb,best=10)
+plot(prune.melb)
+text(prune.melb,pretty=0)
+tree.pred1=predict(prune.melb,newdata = valid.dtree,type="class")
+# Building classification table
+ctable <- table(valid.dtree$priceCat, tree.pred1)
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+```
+
+###Bagging and Random Forest
+```{r}
+train.rpart <-  train.dtree
+valid.rpart <-  valid.dtree
+
+library(randomForest)
+set.seed(1)
+bag.melb=randomForest(priceCat~.,data=train.dtree,mtry=7,importance=TRUE)
+yhat.bag = predict(bag.melb,newdata = valid.dtree)
+
+```
+```{r}
+importance(bag.melb)
+varImpPlot(bag.melb)
+```
+###Bagging training accuracy
+```{r}
+yhat.bagtr = predict(bag.melb,newdata = train.dtree[,-11])
+# Building classification table
+ctable <- table(train.dtree$priceCat, yhat.bagtr)
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+
+```
+###Bagging testing accuracy
+```{r}
+# Building classification table
+ctable <- table(valid.dtree$priceCat, yhat.bag)
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+
+```
+
+###Boosting as the model is highly overfit
+
+```{r}
+set.seed(1)
+#install.packages("gbm")
+library(gbm)
+gbm_melb = gbm(priceCat ~.,
+              data = train.dtree,
+              distribution = "multinomial",
+              cv.folds = 10,
+              shrinkage = .01,
+              n.minobsinnode = 10,
+              n.trees = 2000)
+```
+
+
+```{r}
+pred = predict.gbm(object = gbm_melb,
+                   newdata = valid.dtree,
+                   n.trees = 2000,
+                   type = "response")
+
+
+
+```
+```{r}
+library(caret)
+labels = colnames(pred)[apply(pred, 1, which.max)]
+result = data.frame(valid.dtree$priceCat, labels)
+
+```
+#boosting test accuracy
+```{r}
+cm = confusionMatrix(valid.dtree$priceCat, as.factor(labels))
+print(cm)
+
+
+```
+
+###Boosting training accuracy
+```{r}
+gmb_train = predict(gbm_melb,newdata = train.dtree[,-11])
+# Building classification table
+labels = colnames(pred)[apply(gmb_train, 1, which.max)]
+result = data.frame(train.dtree$priceCat, labels)
+ctable <- table(train.dtree$priceCat, as.factor(labels))
+ 
+# Calculating accuracy - sum of diagonal elements divided by total obs
+round((sum(diag(ctable))/sum(ctable))*100,2)
+#library(caret)
+cm = confusionMatrix(train.dtree$priceCat, as.factor(labels))
+print(cm)
+
+```
+###Rpart tree
+```{r}
+#install.packages("rpart")
+#install.packages("rpart.plot")
+library(rpart)
+library(rpart.plot)
+# classification tree
+#default.ct <- rpart(priceCat ~ ., data = train.dtree, method = "class")
+# plot tree
+#prp(default.ct, type = 1, extra = 1, under = TRUE, split.font = 1, varlen = -10)
+```
+##### Rpart Random forest
+```{r}
+
+## random forest
+rf <- randomForest(as.factor(priceCat) ~ ., data = train.rpart, ntree = 500, 
+                   mtry = 4, nodesize = 5, importance = TRUE)  
+
+```
+
+```{r}
+## variable importance plot
+varImpPlot(rf, type = 1)
+
+## confusion matrix
+rf.pred <- predict(rf, valid.rpart)
+confusionMatrix(as.factor(rf.pred), as.factor(valid.rpart$priceCat))
+```
+##### Rpart optimization
+```{r}
+# argument xval refers to the number of folds to use in rpart's built-in
+# cross-validation procedure
+# argument cp sets the smallest value for the complexity parameter.
+cv.ct <- rpart(priceCat ~ ., data = train.rpart, method = "class", 
+               cp = 0.00001, minsplit = 15, xval = 5)
+# use printcp() to print the table. 
+printcp(cv.ct)
+```
+```{r}
+# prune by lower cp
+pruned.ct <- prune(cv.ct, 
+                   cp = cv.ct$cptable[which.min(cv.ct$cptable[,"xerror"]),"CP"])
+length(pruned.ct$frame$var[pruned.ct$frame$var == "<leaf>"])
+prp(pruned.ct, type = 1, extra = 1, split.font = 10, varlen = -10)  
+```
+```{r}
+set.seed(1)
+cv.ct <- rpart(priceCat ~ ., data = train.rpart, method = "class", cp = 0.00001, minsplit = 1, xval = 5)  # minsplit is the minimum number of observations in a node for a split to be attempted. xval is number K of folds in a K-fold cross-validation.
+printcp(cv.ct)  # Print out the cp table of cross-validation errors. The R-squared for a regression tree is 1 minus rel error. xerror (or relative cross-validation error where "x" stands for "cross") is a scaled version of overall average of the 5 out-of-sample errors across the 5 folds.
+```
+
+
+```{r}
+pruned.ct <- prune(cv.ct, cp = 0.0154639)
+prp(pruned.ct, type = 1, extra = 1, under = TRUE, split.font = 1, varlen = -10, 
+    box.col=ifelse(pruned.ct$frame$var == "<leaf>", 'gray', 'white')) 
+```
+
+##### RBoosting optimization
+```{r}
+#install.packages("adabag")
+library(adabag)
+library(rpart) 
+library(caret)
+
+train.rpart$priceCat <- as.factor(train.rpart$priceCat)
+
+set.seed(1)
+boost <- boosting( priceCat ~ ., data = train.rpart)
+pred <- predict(boost, valid.rpart)
+confusionMatrix(as.factor(pred$class), as.factor(valid.rpart$priceCat))
+```
+####randomregressor
+```{r}
+train.dtree<- subset(train.df, select = -c(1,2,6,7,8,20,21,10,15,22))
+valid.dtree<- subset(valid.df, select = -c(1,2,6,7,8,20,21,10,15,22))
+library(randomForest)
+set.seed(1)
+bag.melbreg=randomForest(Price~.,data=train.dtree,mtry=7,importance=TRUE)
+```
+```{r}
+yhat.bag = predict(bag.melbreg, newdata = valid.dtree[,-3])
+```
+```{r}
+plot(yhat.bag, valid.dtree[,3])
+abline(0,1)
+mean((yhat.bag-valid.dtree[,3])^2)
+importance(bag.melbreg)
+varImpPlot(bag.melbreg)
+```
+####boosting regressor
+```{r}
+set.seed(1)
+boostreg.melb=gbm(Price~.,data=train.dtree,distribution="gaussian",n.trees=5000,interaction.depth=4)
+```
+
+
+```{r}
+summary(boostreg.melb)
+par(mfrow=c(1,2))
+plot(boostreg.melb,i="Bedroom2")
+plot(boostreg.melb,i="Rooms")
+plot(boostreg.melb,i="YearBuilt")
+yhat.boostreg=predict(boostreg.melb,newdata=valid.dtree[,-3],n.trees=5000)
+
+plot(yhat.boostreg, valid.dtree[,3])
+abline(0,1)
+mean((yhat.boostreg-valid.dtree[,3])^2)
+```
+
+
+###KNN regressor
+```{r}
+library(class)
+#Find the number of observation
+NROW(train.dtree)
+knn.train<-subset(train.df, select= -c(2,8,14,10,20,21))
+knn.test <-subset(valid.df, select= -c(2,8,14,10,20,21))
+# Feature Scaling 
+#knn.train$Propertycount <- as.numeric(as.character(knn.train$Propertycount))
+#knn.test$Propertycount <- as.numeric(as.character(knn.test$Propertycount))
+#knn.train$Address <- as.numeric(knn.train$Address)
+
+knn.train$Type <- as.numeric(knn.train$Type)
+knn.train$Method <- as.numeric(knn.train$Method)
+knn.train$Suburb  <- as.numeric(knn.train$Suburb)
+knn.train$SellerG <- as.numeric(knn.train$SellerG)
+knn.train$Price <- as.numeric(knn.train$Price)
+#knn.train$Regionname <- as.numeric(knn.train$Regionname)
+knn.train$CouncilArea <- as.numeric(knn.train$CouncilArea)
+knn.train$priceCat <- as.numeric(knn.train$priceCat)
+knn.test$Type <- as.numeric(knn.test$Type)
+knn.test$Method <- as.numeric(knn.test$Method)
+knn.test$Suburb  <- as.numeric(knn.test$Suburb)
+knn.test$SellerG <- as.numeric(knn.test$SellerG)
+knn.test$Price <- as.numeric(knn.test$Price)
+#knn.test$Regionname <- as.numeric(knn.test$Regionname)
+knn.test$CouncilArea <- as.numeric(knn.test$CouncilArea)
+knn.test$priceCat <- as.numeric(knn.test$priceCat)
+#knn.train$Postcode <- as.numeric(knn.train$Postcode)
+#knn.test$Postcode <- as.numeric(knn.test$Postcode)
+#knn.test$Address <- as.numeric(knn.test$Address)
+```
+```{r}
+#Normalization
+normalize <- function(x) {
+return ((x - min(x)) / (max(x) - min(x))) }
+norm.train <- as.data.frame(lapply(knn.train, normalize))
+norm.valid <- as.data.frame(lapply(knn.test, normalize))
+library(FNN)
+```
+###sqrt 0f 5332 is 73
+```{r}
+knn.73 <- knn(train=norm.train, test=norm.valid,cl=norm.train$Price, k=73)
+```
+```{r}
+ACC.73 <- 100 * sum(norm.valid$Price == knn.73)/NROW(norm.valid$Price)
+ACC.73
+
+```
+###KNN classifier
+```{r}
+library(e1071) 
+library(caTools) 
+library(class) 
+knn.train<-train.dfreg1
+knn.test <- valid.dfreg1
+```
+
+```{r}
+# Feature Scaling 
+knn.train$Type <- as.numeric(knn.train$Type)
+knn.train$Method <- as.numeric(knn.train$Method)
+knn.train$Suburb  <- as.numeric(knn.train$Suburb)
+knn.train$SellerG <- as.numeric(knn.train$SellerG)
+knn.train$priceCat <- as.numeric(knn.train$priceCat)
+knn.train$Regionname <- as.numeric(knn.train$Regionname)
+knn.train$CouncilArea <- as.numeric(knn.train$CouncilArea)
+knn.train$priceCat <- as.numeric(knn.train$priceCat)
+knn.test$Type <- as.numeric(knn.test$Type)
+knn.test$Method <- as.numeric(knn.test$Method)
+knn.test$Suburb  <- as.numeric(knn.test$Suburb)
+knn.test$SellerG <- as.numeric(knn.test$SellerG)
+knn.test$priceCat <- as.numeric(knn.test$priceCat)
+knn.test$Regionname <- as.numeric(knn.test$Regionname)
+knn.test$CouncilArea <- as.numeric(knn.test$CouncilArea)
+knn.test$priceCat <- as.numeric(knn.test$priceCat)
+knn.train$Postcode <- as.numeric(knn.train$Postcode)
+knn.test$Postcode <- as.numeric(knn.test$Postcode)
+```
+```{r}
+train_scale <- scale(knn.train[,1:17]) 
+test_scale <- scale(knn.test[,1:17]) 
+
+```
+# Fitting KNN Model  
+# to training dataset 
+
+```{r}
+classifier_knn <- knn(train = train_scale, 
+                      test = test_scale, 
+                      cl = knn.train$priceCat, 
+                      k = 4) 
+
+
+```
+# Confusiin Matrix 
+```{r}
+cm <- table(knn.test$priceCat, classifier_knn) 
+cm 
+# Model Evaluation - Choosing K 
+# Calculate out of Sample error 
+misClassError <- mean(classifier_knn != knn.test$priceCat) 
+print(paste('Accuracy =', 1-misClassError)) 
+```
+
+```{r}
+if(!require("osmdata")) install.packages("osmdata")
+library(osmdata)
+#q <- getbb("Mellbourne") %>%
+#      opq() %>%
+#       add_osm_feature(melb.df$Longtitude, melb.df$Lattitude)
+#q
+```
+
+
+
+```
